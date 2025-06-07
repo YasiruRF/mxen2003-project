@@ -1,99 +1,73 @@
-#include "Controller.h"
+#include "Controller.h" // Includes necessary libraries like serial0.h, serial1.h, milliseconds.h, adc.h
 
-#define PWM_TOP 2000
-#define DEADZONE 20
+char serial_string[60] = {0}; // Debug output string
 
-uint8_t databyte1 = 0;
-uint8_t databyte2 = 0;
-uint8_t recievedData[2];      // received data array
-char serial_string[60] = {0}; // String used for printing to terminal
+unsigned long current_ms = 0;
+unsigned long last_send_ms = 0;
 
 int main(void)
 {
-  serial0_init();
-  serial2_init();
-  milliseconds_init();
-  adc_init();
-  _delay_ms(20);
+  // --- Initialization ---
+  serial0_init();     // For debugging on PC (e.g., via USB-to-serial adapter)
+  serial1_init();     // For Bluetooth communication with the Robot
+  milliseconds_init(); // Initialize millisecond timer for delays
+  adc_init();         // Initialize Analog-to-Digital Converter for joystick
+  _delay_ms(20);      // Small delay for peripherals to stabilize
 
-  // Set PB5 (OC1A) and PB6 (OC1B) as output for PWM
-  DDRB |= (1 << PB5) | (1 << PB6);
+  // This constant byte will be sent to the robot.
+  // You can tie this to a button or switch on your controller if needed.
+  const uint8_t constant_control_byte = 1; // Example: 1 for enabled, 0 for disabled
 
-  // Set PORTA (PA0–PA3) as output for motor direction
-  DDRA |= (1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3);
-  PORTA &= ~((1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3)); // initialize to low
-
-  // Timer1 PWM setup (Mode 8: Phase and Frequency Correct PWM using ICR1)
-  TCCR1A = (1 << COM1A1) | (1 << COM1B1); // Non-inverting mode
-  TCCR1B = (1 << WGM13) | (1 << CS11);    // Mode 8 with prescaler 8
-
-  ICR1 = PWM_TOP; // Set TOP value for 500Hz
-
+  // --- Main Program Loop ---
   while (1)
   {
-    uint16_t x_val = adc_read(0); // Left/right joystick
-    uint16_t y_val = adc_read(1); // Forward/backward joystick
+    current_ms = milliseconds; // Get current time in milliseconds
 
-    // Debugging: print analog values
-    char serialString[50];
-    sprintf(serialString, "X: %u, Y: %u\n", x_val, y_val);
-    serial0_print_string(serialString);
+    // === Read Joystick Values ===
+    // Assuming ADC channel 0 for X-axis and ADC channel 1 for Y-axis.
+    // ADC returns 10-bit values (0-1023).
+    uint16_t x_adc_val = adc_read(0);
+    uint16_t y_adc_val = adc_read(1);
 
-    // Convert joystick readings to signed values centered at 0
-    int16_t x = (int16_t)x_val - 512;
-    int16_t y = (int16_t)y_val - 512;
+    // === Convert 10-bit ADC to 8-bit byte ===
+    // Shifting right by 2 effectively divides by 4, mapping 0-1023 to 0-255.
+    uint8_t x_byte = (uint8_t)(x_adc_val >> 2);
+    uint8_t y_byte = (uint8_t)(y_adc_val >> 2);
 
-    int16_t lm = y + x;
-    int16_t rm = y - x;
+    // === Prepare Data Packet using databytes array ===
+    // Define an array to hold the data bytes for the packet.
+    // Order: [Constant, X-axis, Y-axis]
+    uint8_t databytes[3]; // We have 3 data bytes to send
 
-    int16_t lmDuty = 0;
-    int16_t rmDuty = 0;
+    databytes[0] = constant_control_byte;
+    databytes[1] = x_byte;
+    databytes[2] = y_byte;
 
-    // Apply deadzone
-    if (abs(x) > DEADZONE || abs(y) > DEADZONE)
+    // === Debug Print to PC Serial Monitor (serial0) ===
+    // This helps you verify what data is being read and prepared for sending.
+    sprintf(serial_string, "Tx (Controller): Const:%u, X:%u, Y:%u\r\n", 
+            databytes[0], databytes[1], databytes[2]);
+    serial0_print_string(serial_string);
+
+    // === Send Data via Bluetooth (serial1) ===
+    // Only send data every 100 milliseconds to avoid overwhelming the receiver
+    // and to provide a consistent update rate.
+    if ((current_ms - last_send_ms) >= 100)
     {
-      lmDuty = abs((int32_t)lm * PWM_TOP / 512);
-      rmDuty = abs((int32_t)rm * PWM_TOP / 512);
-    }
+      last_send_ms = current_ms; // Update last send time
 
-    // Set PWM duty cycle
-    OCR1A = (lmDuty > PWM_TOP) ? PWM_TOP : lmDuty;
-    OCR1B = (rmDuty > PWM_TOP) ? PWM_TOP : rmDuty;
+      // Packet format: [START_BYTE, DATABYTE0, DATABYTE1, DATABYTE2, END_BYTE]
+      // Using 254 (0xFE) as a distinct start byte and 253 (0xFD) as an end byte
+      serial1_write_byte(254); // Start byte (0xFE)
 
-    // Control left motor direction
-    if (lm > DEADZONE)
-    {
-      PORTA |= (1 << PA0);
-      PORTA &= ~(1 << PA1);
-    }
-    else if (lm < -DEADZONE)
-    {
-      PORTA &= ~(1 << PA0);
-      PORTA |= (1 << PA1);
-    }
-    else
-    {
-      PORTA &= ~(1 << PA0);
-      PORTA &= ~(1 << PA1);
-    }
-
-    // Control right motor direction
-    if (rm > DEADZONE)
-    {
-      PORTA |= (1 << PA2);
-      PORTA &= ~(1 << PA3);
-    }
-    else if (rm < -DEADZONE)
-    {
-      PORTA &= ~(1 << PA2);
-      PORTA |= (1 << PA3);
-    }
-    else
-    {
-      PORTA &= ~(1 << PA2);
-      PORTA &= ~(1 << PA3);
+      // Send all data bytes from the array
+      for (int i = 0; i < sizeof(databytes); i++) {
+          serial1_write_byte(databytes[i]);
+      }
+      
+      serial1_write_byte(253); // End byte (0xFD)
     }
   }
 
-  return 0;
+  return 0; // Should not be reached in an infinite loop
 }

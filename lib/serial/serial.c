@@ -216,68 +216,68 @@ void serial1_get_data(uint8_t *data, uint8_t size)
 	serial1DataReady = false; //new data no longer available
 } //end serial1_get_data
 
-ISR(USART1_RX_vect)  // ISR executed whenever a new byte is available in the serial buffer
-{
-	static uint8_t recvByte1=0, recvByte2=0, recvByte3=0, recvByte4=0, recvByte5=0, recvByte6=0;		// data bytes received
-	static uint8_t serial_fsm_state=0;									// used in the serial receive ISR
-	static uint8_t numBytes = 6;
-	uint8_t	serial_byte_in = UDR1; //move serial byte into variable
+// ISR(USART1_RX_vect)  // ISR executed whenever a new byte is available in the serial buffer
+// {
+// 	static uint8_t recvByte1=0, recvByte2=0, recvByte3=0, recvByte4=0, recvByte5=0, recvByte6=0;		// data bytes received
+// 	static uint8_t serial_fsm_state=0;									// used in the serial receive ISR
+// 	static uint8_t numBytes = 6;
+// 	uint8_t	serial_byte_in = UDR1; //move serial byte into variable
 	
-	if(serial_byte_in == 0xFE) //check for ned delimiter
-	{
-		if(serial_fsm_state == numBytes)
-		{
-			//Assign local data to be available externally
-			serial1DataByte1 = recvByte1;
-			serial1DataByte2 = recvByte2;
-			serial1DataByte3 = recvByte3;
-			serial1DataByte4 = recvByte4;
-			serial1DataByte5 = recvByte5;
-			serial1DataByte6 = recvByte6;
-			// now that the stop byte has been received, set a flag that new data is available
-			serial1DataReady=true;
-		}
-		serial_fsm_state = 0; //set to expect start byte
-	}
-	switch(serial_fsm_state) //switch by the current state
-	{
-		case 0:
-		//do nothing, if check after switch case will find start byte and set serial_fsm_state to 1
-		break;
-		case 1: //waiting for number of bytes parameter
-		numBytes = serial_byte_in + 2;
-		serial_fsm_state++;
-		break;
-		case 2: //waiting for first parameter
-		recvByte1 = serial_byte_in;
-		serial_fsm_state++;
-		break;
-		case 3: //waiting for second parameter
-		recvByte2 = serial_byte_in;
-		serial_fsm_state++;
-		break;
-		case 4: //waiting for third parameter
-		recvByte3 = serial_byte_in;
-		serial_fsm_state++;
-		break;
-		case 5: //waiting for fourth parameter
-		recvByte4 = serial_byte_in;
-		serial_fsm_state++;
-		break;
-		case 6: //waiting for fifth parameter
-		recvByte5 = serial_byte_in;
-		serial_fsm_state++;
-		break;
-		case 7: //waiting for sixth parameter
-		recvByte6 = serial_byte_in;
-		serial_fsm_state++;
-		break;
-	}
-	if(serial_byte_in == 0xFF) //if start byte is received, we go back to expecting the first data byte
-	{
-		serial_fsm_state=1;
-	}
-} //end ISR
+// 	if(serial_byte_in == 0xFE) //check for ned delimiter
+// 	{
+// 		if(serial_fsm_state == numBytes)
+// 		{
+// 			//Assign local data to be available externally
+// 			serial1DataByte1 = recvByte1;
+// 			serial1DataByte2 = recvByte2;
+// 			serial1DataByte3 = recvByte3;
+// 			serial1DataByte4 = recvByte4;
+// 			serial1DataByte5 = recvByte5;
+// 			serial1DataByte6 = recvByte6;
+// 			// now that the stop byte has been received, set a flag that new data is available
+// 			serial1DataReady=true;
+// 		}
+// 		serial_fsm_state = 0; //set to expect start byte
+// 	}
+// 	switch(serial_fsm_state) //switch by the current state
+// 	{
+// 		case 0:
+// 		//do nothing, if check after switch case will find start byte and set serial_fsm_state to 1
+// 		break;
+// 		case 1: //waiting for number of bytes parameter
+// 		numBytes = serial_byte_in + 2;
+// 		serial_fsm_state++;
+// 		break;
+// 		case 2: //waiting for first parameter
+// 		recvByte1 = serial_byte_in;
+// 		serial_fsm_state++;
+// 		break;
+// 		case 3: //waiting for second parameter
+// 		recvByte2 = serial_byte_in;
+// 		serial_fsm_state++;
+// 		break;
+// 		case 4: //waiting for third parameter
+// 		recvByte3 = serial_byte_in;
+// 		serial_fsm_state++;
+// 		break;
+// 		case 5: //waiting for fourth parameter
+// 		recvByte4 = serial_byte_in;
+// 		serial_fsm_state++;
+// 		break;
+// 		case 6: //waiting for fifth parameter
+// 		recvByte5 = serial_byte_in;
+// 		serial_fsm_state++;
+// 		break;
+// 		case 7: //waiting for sixth parameter
+// 		recvByte6 = serial_byte_in;
+// 		serial_fsm_state++;
+// 		break;
+// 	}
+// 	if(serial_byte_in == 0xFF) //if start byte is received, we go back to expecting the first data byte
+// 	{
+// 		serial_fsm_state=1;
+// 	}
+// } //end ISR
 
 void serial2_init(void)
 {
