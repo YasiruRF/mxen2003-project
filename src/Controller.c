@@ -1,7 +1,7 @@
 #include "Controller.h"
 
 char serial_string[60] = {0};
-volatile uint8_t auto_mode = 0; // 0 = manual, 1 = auto
+volatile uint8_t auto_mode = 0;
 unsigned long current_ms = 0;
 unsigned long last_send_ms = 0;
 
@@ -24,15 +24,16 @@ void update_lcd_mode()
 
 ISR(INT5_vect)
 {
-  static uint8_t last_state = 0;
-  uint8_t current_state = (PINE & (1 << PE5)) ? 1 : 0;
-  // Simple debounce: only toggle on rising edge
-  if (current_state && !last_state)
+  static unsigned long last_interrupt_time = 0;
+  unsigned long interrupt_time = milliseconds;
+
+  if (interrupt_time - last_interrupt_time > 200)
   {
-    auto_mode ^= 1; // Toggle mode
+    auto_mode ^= 1;
     update_lcd_mode();
   }
-  last_state = current_state;
+
+  last_interrupt_time = interrupt_time;
 }
 
 int main(void)
@@ -48,19 +49,16 @@ int main(void)
   lcd_clrscr();
   _delay_ms(10);
 
-  // --- Configure PE5 as input with pull-up ---
-  DDRE &= ~(1 << PE5); // Input
-  PORTE |= (1 << PE5); // Enable pull-up
+  DDRE &= ~(1 << PE5);
+  PORTE |= (1 << PE5);
 
-  // --- Enable INT5 on any edge ---
-  EICRB |= (1 << ISC50); // ISC51=0, ISC50=1: any logical change
-  EICRB &= ~(1 << ISC51);
-  EIFR |= (1 << INTF5); // Clear any pending
-  EIMSK |= (1 << INT5); // Enable INT5
+  EICRB |= (1 << ISC51) | (1 << ISC50);
+  EIFR |= (1 << INTF5);
+  EIMSK |= (1 << INT5);
 
-  sei(); // Enable global interrupts
+  sei();
 
-  update_lcd_mode(); // Show initial mode
+  update_lcd_mode();
 
   const uint8_t constant_control_byte = 1;
 
@@ -68,20 +66,39 @@ int main(void)
   {
     current_ms = milliseconds;
 
-    uint16_t x_adc_val = adc_read(0);
-    uint16_t y_adc_val = adc_read(1);
-    uint16_t servo_val = adc_read(2);
+    // --- Joystick ADC reads ---
+    uint16_t x_adc_val_raw = adc_read(0);
+    uint16_t y_adc_val_raw = adc_read(1);
+    uint16_t servo_adc_val_raw = adc_read(2);
 
-    uint8_t x_byte = (uint8_t)(x_adc_val >> 2);
-    uint8_t y_byte = (uint8_t)(y_adc_val >> 2);
-    uint8_t servo_byte = (uint8_t)(servo_val >> 2);
+    const uint16_t threshold = 30;
+    const uint16_t center = 512;
+
+    uint8_t x_byte = 128;
+    uint8_t y_byte = 128;
+    uint8_t servo_byte = 128;
+
+    uint8_t xy_active = (abs(x_adc_val_raw - center) > threshold) ||
+                        (abs(y_adc_val_raw - center) > threshold);
+    uint8_t servo_active = abs(servo_adc_val_raw - center) > threshold;
+
+    if (xy_active)
+    {
+      x_byte = (uint8_t)(x_adc_val_raw >> 2);
+      y_byte = (uint8_t)(y_adc_val_raw >> 2);
+    }
+    else if (servo_active)
+    {
+      servo_byte = (uint8_t)(servo_adc_val_raw >> 2);
+    }
 
     uint8_t databytes[4] = {
         constant_control_byte,
         x_byte,
-        y_byte, servo_byte};
+        y_byte,
+        servo_byte};
 
-    sprintf(serial_string, "Tx (Controller): Const:%u, X:%u, Y:%u, Servo:%u\r\n",
+    sprintf(serial_string, "Tx: Const:%u, X:%u, Y:%u, Servo:%u\r\n",
             databytes[0], databytes[1], databytes[2], databytes[3]);
     serial0_print_string(serial_string);
 
